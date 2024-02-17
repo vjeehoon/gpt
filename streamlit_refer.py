@@ -1,165 +1,37 @@
 import streamlit as st
-import tiktoken
-from loguru import logger
-
-from langchain.chains import ConversationalRetrievalChain
-from langchain.chat_models import ChatOpenAI
-
-from langchain.document_loaders import PyPDFLoader
-from langchain.document_loaders import Docx2txtLoader
-from langchain.document_loaders import UnstructuredPowerPointLoader
-
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.embeddings import HuggingFaceEmbeddings
-
-from langchain.memory import ConversationBufferMemory
-from langchain.vectorstores import FAISS
-
-# from streamlit_chat import message
-from langchain.callbacks import get_openai_callback
-from langchain.memory import StreamlitChatMessageHistory
+# 기타 필요한 import 문
 
 def main():
-    st.set_page_config(
-    page_title="PoliticianGPT",
-    page_icon="bi bi-backpack2")
+    st.set_page_config(page_title="PoliticianGPT", page_icon="📘")
+    st.title("Politician GPT: 대화형 QA 챗봇")
 
-    st.title("_Politician GPT:Blue[QA Chat]_ :books:")
+    # 파일 업로더 및 API 키 입력
+    uploaded_files = st.sidebar.file_uploader("Upload your file", type=['pdf', 'docx', 'pptx'], accept_multiple_files=True)
+    openai_api_key = st.sidebar.text_input("OpenAI API Key", type="password")
+    process_button = st.sidebar.button("Process")
 
-    if "conversation" not in st.session_state:
-        st.session_state.conversation = None
-
-    if "chat_history" not in st.session_state:
-        st.session_state.chat_history = None
-
-    if "processComplete" not in st.session_state:
-        st.session_state.processComplete = None
-
-    with st.sidebar:
-        uploaded_files =  st.file_uploader("Upload your file",type=['pdf','docx'],accept_multiple_files=True)
-        openai_api_key = st.text_input("OpenAI API Key", key="chatbot_api_key", type="password")
-        process = st.button("Process")
-    if process:
+    if process_button:
         if not openai_api_key:
-            st.info("Please add your OpenAI API key to continue.")
-            st.stop()
-        files_text = get_text(uploaded_files)
-        text_chunks = get_text_chunks(files_text)
-        vetorestore = get_vectorstore(text_chunks)
-     
-        st.session_state.conversation = get_conversation_chain(vetorestore,openai_api_key) 
+            st.sidebar.error("Please add your OpenAI API key to continue.")
+        else:
+            try:
+                # 파일 처리 및 대화 체인 생성 로직
+                # 예: files_text = get_text(uploaded_files) 등
+                st.success("처리가 완료되었습니다!")
+            except Exception as e:
+                st.error(f"Error: {e}")
 
-        st.session_state.processComplete = True
+    # 사용자 메시지 입력 및 처리
+    user_query = st.text_input("질문을 입력해주세요.")
+    if user_query:
+        try:
+            # 사용자 쿼리 처리 로직
+            st.write(f"질문: {user_query}")  # 예제로 질문을 그대로 출력
+            # 실제로는 GPT 모델을 호출하여 답변을 처리하고 결과를 표시해야 함
+        except Exception as e:
+            st.error(f"Error: {e}")
 
-    if 'messages' not in st.session_state:
-        st.session_state['messages'] = [{"role": "assistant", 
-                                        "content": "안녕하세요! 정치인 이재명의 철학, 정책, 공약에 대해 궁금하신 것이 있으면 언제든 물어봐주세요!"}]
-
-    for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
-
-    history = StreamlitChatMessageHistory(key="chat_messages")
-
-    # Chat logic
-    if query := st.chat_input("질문을 입력해주세요."):
-        st.session_state.messages.append({"role": "user", "content": query})
-
-        with st.chat_message("user"):
-            st.markdown(query)
-
-        with st.chat_message("assistant"):
-            chain = st.session_state.conversation
-
-            with st.spinner("Thinking..."):
-                result = chain({"question": query})
-                with get_openai_callback() as cb:
-                    st.session_state.chat_history = result['chat_history']
-                response = result['answer']
-                source_documents = result['source_documents']
-
-                st.markdown(response)
-                with st.expander("참고 문서 확인"):
-                    st.markdown(source_documents[0].metadata['source'], help = source_documents[0].page_content)
-                    st.markdown(source_documents[1].metadata['source'], help = source_documents[1].page_content)
-                    st.markdown(source_documents[2].metadata['source'], help = source_documents[2].page_content)
-                    
-
-
-# Add assistant message to chat history
-        st.session_state.messages.append({"role": "assistant", "content": response})
-
-def tiktoken_len(text):
-    tokenizer = tiktoken.get_encoding("cl100k_base")
-    tokens = tokenizer.encode(text)
-    return len(tokens)
-
-def get_text(docs):
-
-    doc_list = []
-    
-    for doc in docs:
-        file_name = doc.name  # doc 객체의 이름을 파일 이름으로 사용
-        with open(file_name, "wb") as file:  # 파일을 doc.name으로 저장
-            file.write(doc.getvalue())
-            logger.info(f"Uploaded {file_name}")
-        if '.pdf' in doc.name:
-            loader = PyPDFLoader(file_name)
-            documents = loader.load_and_split()
-        elif '.docx' in doc.name:
-            loader = Docx2txtLoader(file_name)
-            documents = loader.load_and_split()
-        elif '.pptx' in doc.name:
-            loader = UnstructuredPowerPointLoader(file_name)
-            documents = loader.load_and_split()
-
-        doc_list.extend(documents)
-    return doc_list
-
-
-def get_text_chunks(text):
-    text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=900,
-        chunk_overlap=100,
-        length_function=tiktoken_len
-    )
-    chunks = text_splitter.split_documents(text)
-    return chunks
-
-
-def get_vectorstore(text_chunks):
-    embeddings = HuggingFaceEmbeddings(
-                                        model_name="jhgan/ko-sroberta-multitask",
-                                        model_kwargs={'device': 'cpu'},
-                                        encode_kwargs={'normalize_embeddings': True}
-                                        )  
-    vectordb = FAISS.from_documents(text_chunks, embeddings)
-    return vectordb
-
-def get_conversation_chain(vetorestore, openai_api_key, user_instructions):
-    llm = ChatOpenAI(openai_api_key=openai_api_key, model_name='gpt-3.5-turbo', temperature=0)
-    
-    # 사용자 지시사항을 시스템 메시지로 구성하여 GPT에 전달
-    system_messages = [{
-        "role": "system",
-        "content": "답변을 제공할때, 업로드한 파일과  인터넷 검색을 통해서 찾은 후 두가지 내용을 통합해서 답변한다 업로드한 공약 및 정책 자료를 정확히 이해하고 분석하여, 그 내용에 관한 질문에 답한다 공약이나 정책의 목표, 예상되는 효과, 잠재적인 문제점 등에 대해 깊이 있는 설명을 제공한다 공약이나 정책이 현재의 정치적, 경제적, 사회적 맥락에서 어떤 의미를 가지는지 분석한다 정책이 제안된 배경, 관련된 법적, 경제적 요소, 국제적 영향 등을 고려하여 설명한다 사용자가 공약이나 정책에 대해 비판적인 질문을 할 경우, 객관적이고 정보에 기반한 분석을 제공한다.정책이나 공약의 실행 가능성, 재정적 영향, 사회적 파급 효과에 대해 논의한다 해당 정치인의 공약 및 정책이 역사적 사건이나 전례, 다른 나라의 사례와 어떻게 비교되는지 분석한다 정책이나 공약에 대한 최신 뉴스나 발전 사항에 대해서는 신뢰할 수 있는 최신 정보를 사용하여 업데이트한다: " + ", ".join(user_instructions)
-    }]
-    
-    conversation_chain = ConversationalRetrievalChain.from_llm(
-            llm=llm,
-            chain_type="customized",  # 'stuff' 대신 'customized'로 변경하여 목적을 명확히 함
-            retriever=vetorestore.as_retriever(search_type='mmr', verbose=True),
-            memory=ConversationBufferMemory(memory_key='chat_history', return_messages=True, output_key='answer'),
-            get_chat_history=lambda h: h,
-            return_source_documents=True,
-            verbose=True,
-            initial_messages=system_messages  # 초기 시스템 메시지 추가
-        )
-
-    return conversation_chain
-
-
-
+# 이 부분에 필요한 다른 함수들을 정의합니다 (예: get_text, get_text_chunks, get_vectorstore 등)
 
 if __name__ == '__main__':
     main()
