@@ -1,5 +1,6 @@
 import streamlit as st
 import tiktoken
+import openai
 from loguru import logger
 
 from langchain.chains import ConversationalRetrievalChain
@@ -136,19 +137,28 @@ def get_vectorstore(text_chunks):
     vectordb = FAISS.from_documents(text_chunks, embeddings)
     return vectordb
 
-def get_conversation_chain(vetorestore,openai_api_key):
-    llm = ChatOpenAI(openai_api_key=openai_api_key, model_name = 'gpt-3.5-turbo',temperature=0)
+def get_conversation_chain(vetorestore, openai_api_key, user_instructions):
+    llm = ChatOpenAI(openai_api_key=openai_api_key, model_name='gpt-3.5-turbo', temperature=0)
+    
+    # 사용자 지시사항을 시스템 메시지로 구성하여 GPT에 전달
+    system_messages = [{
+        "role": "system",
+        "content": "이 시스템은 다음과 같은 지시사항을 바탕으로 대화를 진행합니다: " + ", ".join(user_instructions)
+    }]
+    
     conversation_chain = ConversationalRetrievalChain.from_llm(
-            llm=llm, 
-            chain_type="stuff", 
-            retriever=vetorestore.as_retriever(search_type = 'mmr', vervose = True), 
+            llm=llm,
+            chain_type="customized",  # 'stuff' 대신 'customized'로 변경하여 목적을 명확히 함
+            retriever=vetorestore.as_retriever(search_type='mmr', verbose=True),
             memory=ConversationBufferMemory(memory_key='chat_history', return_messages=True, output_key='answer'),
             get_chat_history=lambda h: h,
             return_source_documents=True,
-            verbose = True
+            verbose=True,
+            initial_messages=system_messages  # 초기 시스템 메시지 추가
         )
 
     return conversation_chain
+
 
 
 
